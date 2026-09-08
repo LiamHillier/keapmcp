@@ -113,6 +113,11 @@ claude mcp add --transport http keap https://keap.example.com/mcp \
   --header "Authorization: Bearer <KEAP_MCP_AUTH_TOKEN>"
 ```
 
+To roll this out to other people, send them [SETUP.md](SETUP.md). It has a
+one-line installer (`scripts/install-client.sh`) that verifies the token and
+configures both Claude Code and Claude Desktop, plus a prompt they can paste
+into Claude to do the same by hand.
+
 Clients that only launch stdio commands, such as Claude Desktop's config file,
 can bridge with [`mcp-remote`](https://www.npmjs.com/package/mcp-remote). The
 header goes through an environment variable because Claude Desktop does not
@@ -307,6 +312,7 @@ spec/                     Keap's OpenAPI v1 + v2 contracts (source of truth)
 scripts/build-catalog.mjs Generates the endpoint catalogue
 scripts/smoke.mjs         End-to-end test over stdio
 scripts/smoke-http.mjs    End-to-end test over Streamable HTTP
+scripts/install-client.sh Configures a colleague's Claude Code and Claude Desktop
 src/config.ts             .env loading and settings
 src/client.ts             HTTP: auth, pacing, retries, cache, pagination
 src/catalog.ts            Endpoint index, search and resolution
