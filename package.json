@@ -1,0 +1,29 @@
+{
+  "name": "keapmcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP server exposing every read endpoint of the Keap CRM REST API, plus aggregation and reporting tools for analytical questions.",
+  "type": "module",
+  "bin": {
+    "keapmcp": "dist/index.js",
+    "keapmcp-http": "dist/http.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "catalog": "node scripts/build-catalog.mjs",
+    "build": "npm run catalog && tsc",
+    "dev": "npm run catalog && tsc --watch",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js",
+    "smoke": "npm run build && node scripts/smoke.mjs",
+    "smoke:http": "npm run build && node scripts/smoke-http.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}

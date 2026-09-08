@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "keap": {
+      "command": "node",
+      "args": [
+        "dist/index.js"
+      ]
+    }
+  }
+}

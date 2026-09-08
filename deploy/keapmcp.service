@@ -1,0 +1,32 @@
+# systemd unit for the hosted (HTTP) keapmcp server.
+#
+#   sudo cp deploy/keapmcp.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now keapmcp
+#   journalctl -u keapmcp -f
+#
+# Assumes the repo is built at /opt/keapmcp with KEAP_PAT and
+# KEAP_MCP_AUTH_TOKEN in /opt/keapmcp/.env (the server reads that file itself).
+
+[Unit]
+Description=keapmcp - read-only Keap CRM MCP server over HTTP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=keapmcp
+Group=keapmcp
+WorkingDirectory=/opt/keapmcp
+ExecStart=/usr/bin/node /opt/keapmcp/dist/http.js
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the server writes nothing to disk.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/keapmcp
+
+[Install]
+WantedBy=multi-user.target
