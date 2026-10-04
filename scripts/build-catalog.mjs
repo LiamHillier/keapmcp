@@ -3,6 +3,10 @@
  * Builds src/catalog.json: every GET (read) operation from Keap's REST v1 and v2
  * OpenAPI contracts, normalised into a flat, searchable shape the server can use
  * to call any read endpoint without carrying the 1.3MB specs at runtime.
+ *
+ * Also builds src/write-catalog.json: every POST/PUT/PATCH/DELETE operation with
+ * a compact summary of its request body. The server only exposes these when a
+ * write password is configured (see src/writes.ts).
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -148,12 +152,72 @@ function paginationStyle(params) {
 }
 
 const catalog = [];
+const writeCatalog = [];
+const WRITE_METHODS = ["post", "put", "patch", "delete"];
+
+/**
+ * Compact description of a request body schema: enough for a model to build a
+ * valid payload (names, types, enums, required) without the full spec.
+ */
+function bodyShape(spec, schema, depth = 0) {
+  let s = deref(spec, schema);
+  if (!s || typeof s !== "object") return undefined;
+  if (s.allOf) {
+    const merged = { type: "object", properties: {}, required: [] };
+    for (const part of s.allOf) {
+      const p = deref(spec, part) || {};
+      Object.assign(merged.properties, p.properties || {});
+      merged.required.push(...(p.required || []));
+    }
+    s = merged;
+  }
+  const out = { type: s.type || (s.properties ? "object" : "string") };
+  if (s.enum) out.enum = s.enum.slice(0, 25);
+  if (s.format) out.format = s.format;
+  const description = trim(s.description, 160);
+  if (description && depth > 0) out.description = description;
+  if (s.readOnly) out.readOnly = true;
+  if (depth >= 3) return out;
+  if (out.type === "array" && s.items) {
+    out.items = bodyShape(spec, s.items, depth + 1);
+  } else if (s.properties) {
+    out.properties = {};
+    for (const [name, child] of Object.entries(s.properties)) {
+      const shaped = bodyShape(spec, child, depth + 1);
+      if (shaped && !shaped.readOnly) out.properties[name] = shaped;
+    }
+    if (s.required?.length) out.required = s.required;
+  }
+  return out;
+}
 
 for (const { version, file } of SPECS) {
   const spec = JSON.parse(readFileSync(join(root, file), "utf8"));
   const server = spec.servers?.[0]?.url || "https://api.infusionsoft.com/crm";
 
   for (const [path, item] of Object.entries(spec.paths)) {
+    for (const method of WRITE_METHODS) {
+      const wop = item[method];
+      if (!wop) continue;
+      const operationId = wop.operationId || `${method}_${path.replace(/\W+/g, "_")}`;
+      const body = deref(spec, wop.requestBody);
+      const schema = body?.content?.["application/json"]?.schema;
+      writeCatalog.push({
+        id: `${version}.${operationId}`,
+        version,
+        method: method.toUpperCase(),
+        operationId,
+        path,
+        tag: wop.tags?.[0] || "Other",
+        summary: trim(wop.summary, 200) || operationId,
+        description: trim(wop.description, 800),
+        deprecated: Boolean(wop.deprecated) || undefined,
+        params: flattenParams(spec, [...(item.parameters || []), ...(wop.parameters || [])]),
+        body: schema ? bodyShape(spec, schema) : undefined,
+        bodyRequired: Boolean(body?.required) || undefined,
+      });
+    }
+
     const op = item.get;
     if (!op) continue;
 
@@ -196,6 +260,23 @@ const out = {
 
 writeFileSync(join(root, "src/catalog.json"), JSON.stringify(out, null, 1));
 
+writeCatalog.sort((a, b) => a.id.localeCompare(b.id));
+if (writeCatalog.length < 100) {
+  throw new Error(`Write catalog looks wrong: only ${writeCatalog.length} write endpoints found`);
+}
+writeFileSync(
+  join(root, "src/write-catalog.json"),
+  JSON.stringify(
+    {
+      generatedFrom: "Keap REST v1 + v2 OpenAPI 3.1 contracts",
+      endpointCount: writeCatalog.length,
+      endpoints: writeCatalog,
+    },
+    null,
+    1,
+  ),
+);
+
 const byVersion = catalog.reduce((acc, e) => {
   acc[e.version] = (acc[e.version] || 0) + 1;
   return acc;
@@ -205,3 +286,8 @@ console.log(
   `catalog: ${catalog.length} read endpoints (${JSON.stringify(byVersion)}), ` +
     `${lists} return collections, ${new Set(catalog.map((e) => e.tag)).size} tags`,
 );
+const writesByMethod = writeCatalog.reduce((acc, e) => {
+  acc[e.method] = (acc[e.method] || 0) + 1;
+  return acc;
+}, {});
+console.log(`write catalog: ${writeCatalog.length} write endpoints (${JSON.stringify(writesByMethod)})`);

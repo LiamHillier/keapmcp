@@ -170,6 +170,82 @@ export class KeapClient {
       : new KeapError(`Request failed: ${String(lastError)}`);
   }
 
+  /**
+   * Send a write request (POST/PUT/PATCH/DELETE). Never cached. POST is not
+   * idempotent, so it is only retried on 429, where Keap rejected the call
+   * before doing anything; the other methods also retry on 5xx and network
+   * errors. Any successful write clears the read cache so follow-up reads
+   * see the change.
+   */
+  async send<T = unknown>(
+    method: "POST" | "PUT" | "PATCH" | "DELETE",
+    url: string,
+    body?: unknown,
+  ): Promise<T> {
+    await this.acquire();
+    try {
+      const idempotent = method !== "POST";
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await this.throttle();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+        try {
+          this.requestCount++;
+          const response = await fetch(url, {
+            method,
+            headers: {
+              ...this.authHeaders(),
+              Accept: "application/json",
+              ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+            },
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
+
+          const retryable = response.status === 429 || (idempotent && response.status >= 500);
+          if (retryable && attempt < 3) {
+            const retryAfter = Number(response.headers.get("retry-after"));
+            const delay = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt;
+            lastError = new KeapError(`Keap returned ${response.status}`, response.status, await safeBody(response));
+            await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 15_000)));
+            continue;
+          }
+
+          if (!response.ok) {
+            const errorBody = await safeBody(response);
+            throw new KeapError(describeHttpError(response.status, errorBody, this.config), response.status, errorBody);
+          }
+
+          this.cache.clear();
+          const text = await response.text();
+          if (!text) return { status: response.status } as T;
+          try {
+            return JSON.parse(text) as T;
+          } catch {
+            return { status: response.status, raw: text.slice(0, 2000) } as T;
+          }
+        } catch (error) {
+          if (error instanceof KeapError) throw error;
+          lastError = error;
+          if (!idempotent || attempt === 3) break;
+          await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      if (method === "POST" && !(lastError instanceof KeapError)) {
+        throw new KeapError(
+          `POST failed without a response (${(lastError as Error)?.message ?? lastError}). It was not retried ` +
+            `because it may already have been applied; check in Keap before trying again.`,
+        );
+      }
+      throw lastError instanceof Error ? lastError : new KeapError(`Request failed: ${String(lastError)}`);
+    } finally {
+      this.release();
+    }
+  }
+
   /** Probe both header styles so setup problems report an actionable answer. */
   async probeAuth(): Promise<{ ok: boolean; workingMode?: "apikey" | "bearer"; detail?: string }> {
     const url = this.buildUrl("/rest/v1/account/profile");
@@ -381,7 +457,7 @@ function describeHttpError(status: number, body: unknown, config: Config): strin
 }
 
 /** Substitute {path_params} from the supplied arguments. */
-export function resolvePath(endpoint: Endpoint, query: Record<string, unknown>): string {
+export function resolvePath(endpoint: Pick<Endpoint, "id" | "path">, query: Record<string, unknown>): string {
   return endpoint.path.replace(/\{([^}]+)\}/g, (_match, name: string) => {
     const value = query[name];
     if (value === undefined || value === null || value === "") {
@@ -393,7 +469,7 @@ export function resolvePath(endpoint: Endpoint, query: Record<string, unknown>):
 
 /** Everything that is not a path placeholder becomes a query parameter. */
 export function stripPathParams(
-  endpoint: Endpoint,
+  endpoint: Pick<Endpoint, "path">,
   query: Record<string, unknown>,
 ): Record<string, unknown> {
   const pathNames = new Set(

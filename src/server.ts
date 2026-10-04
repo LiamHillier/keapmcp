@@ -27,6 +27,7 @@ import {
   type Metric,
 } from "./analyze.js";
 import { REPORTS, runReport, type ReportName } from "./reports.js";
+import { registerWriteTools, WRITE_INSTRUCTIONS } from "./writes.js";
 
 const BUCKETS = ["none", "hour", "day", "week", "month", "quarter", "year", "dow"] as const;
 const OPERATORS = [
@@ -115,7 +116,8 @@ export function createServer(client: KeapClient, config: Config): McpServer {
     { name: "keapmcp", version: "1.0.0" },
     {
       instructions:
-        "Read-only access to a Keap (Infusionsoft) CRM account, covering every GET endpoint of the " +
+        (config.writePassword ? "Access" : "Read-only access") +
+        " to a Keap (Infusionsoft) CRM account, covering every GET endpoint of the " +
         "REST v1 and v2 APIs, plus tools for aggregating and reporting on that data.\n\n" +
         "How to answer analytical questions:\n" +
         "1. keap_report handles the common ones directly (revenue, top products, top customers, " +
@@ -125,7 +127,8 @@ export function createServer(client: KeapClient, config: Config): McpServer {
         "3. keap_get returns raw records when you need to inspect individual entities.\n\n" +
         "Never page through raw records to compute a total — keap_aggregate does that server-side and " +
         "returns only the summary. Money in v2 responses is cents-encoded and is converted to major " +
-        "units automatically.",
+        "units automatically." +
+        (config.writePassword ? WRITE_INSTRUCTIONS : ""),
     },
   );
 
@@ -573,6 +576,8 @@ export function createServer(client: KeapClient, config: Config): McpServer {
       }
     },
   );
+
+  if (config.writePassword) registerWriteTools(server, client, config);
 
   return server;
 }

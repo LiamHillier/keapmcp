@@ -8,6 +8,11 @@ language.
 You need the **access token**. Ask whoever runs the server for it and keep it somewhere private,
 such as your password manager. Never paste it into a shared channel.
 
+If the server has write access turned on, Claude can also create contacts, tags,
+tag categories, notes and tasks. It will ask you for the **write password** each
+time before changing anything. That is a separate password from the access
+token, and only people who should be editing the CRM get it.
+
 ## Option 1: run the install script (macOS and Linux)
 
 Open Terminal and run:

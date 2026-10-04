@@ -16,7 +16,8 @@
     "start": "node dist/index.js",
     "start:http": "node dist/http.js",
     "smoke": "npm run build && node scripts/smoke.mjs",
-    "smoke:http": "npm run build && node scripts/smoke-http.mjs"
+    "smoke:http": "npm run build && node scripts/smoke-http.mjs",
+    "smoke:writes": "npm run build && node scripts/smoke-writes.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.0",

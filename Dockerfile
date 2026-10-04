@@ -9,7 +9,7 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 # Runtime stage: only what dist/http.js needs. The catalogue is read from
-# src/catalog.json at runtime, so it ships alongside dist.
+# src/catalog.json and src/write-catalog.json at runtime, so they ship alongside dist.
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -18,6 +18,7 @@ ENV NODE_ENV=production \
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src/catalog.json ./src/catalog.json
+COPY --from=build /app/src/write-catalog.json ./src/write-catalog.json
 COPY package.json ./
 USER node
 EXPOSE 3000

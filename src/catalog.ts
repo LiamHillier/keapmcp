@@ -70,6 +70,57 @@ export function resolveEndpoint(reference: string): Endpoint | undefined {
   );
 }
 
+/**
+ * A write (POST/PUT/PATCH/DELETE) operation. Only reachable through the
+ * password-gated tools in writes.ts.
+ */
+export interface WriteEndpoint {
+  id: string;
+  version: "v1" | "v2";
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  operationId: string;
+  path: string;
+  tag: string;
+  summary: string;
+  description?: string;
+  deprecated?: boolean;
+  params: EndpointParam[];
+  /** Compact request body schema: type, properties, required, enum. */
+  body?: Record<string, unknown>;
+  bodyRequired?: boolean;
+}
+
+const writeData: { endpoints: WriteEndpoint[] } = JSON.parse(
+  readFileSync(join(PROJECT_ROOT, "src/write-catalog.json"), "utf8"),
+);
+
+export const writeEndpoints: WriteEndpoint[] = writeData.endpoints;
+
+const writeById = new Map<string, WriteEndpoint>();
+for (const endpoint of writeEndpoints) {
+  writeById.set(endpoint.id.toLowerCase(), endpoint);
+  const bare = endpoint.operationId.toLowerCase();
+  if (!writeById.has(bare) || endpoint.version === "v2") writeById.set(bare, endpoint);
+}
+
+/** Resolve a write endpoint from its id ("v2.createTag") or bare operationId. */
+export function resolveWriteEndpoint(reference: string): WriteEndpoint | undefined {
+  return writeById.get(reference.trim().toLowerCase());
+}
+
+export function searchWriteEndpoints(options: SearchOptions & { method?: string }): WriteEndpoint[] {
+  const method = options.method?.toUpperCase();
+  return rank(
+    writeEndpoints.filter((e) => !method || e.method === method),
+    options,
+    () => true,
+  );
+}
+
+export function summariseWriteEndpoint(endpoint: WriteEndpoint): string {
+  return `${endpoint.id}  ${endpoint.method} ${endpoint.path}  [${endpoint.tag}]  ${endpoint.summary}`;
+}
+
 export interface SearchOptions {
   query?: string;
   tag?: string;
@@ -79,17 +130,32 @@ export interface SearchOptions {
 }
 
 export function searchEndpoints(options: SearchOptions): Endpoint[] {
+  return rank(endpoints, options, (e) => !options.listsOnly || Boolean(e.collectionKey));
+}
+
+interface Rankable {
+  id: string;
+  version: "v1" | "v2";
+  operationId: string;
+  path: string;
+  tag: string;
+  summary: string;
+  description?: string;
+  collectionKey?: string;
+}
+
+function rank<T extends Rankable>(list: T[], options: SearchOptions, include: (e: T) => boolean): T[] {
   const terms = (options.query || "")
     .toLowerCase()
     .split(/[\s,]+/)
     .filter(Boolean);
 
-  const scored: Array<{ endpoint: Endpoint; score: number }> = [];
+  const scored: Array<{ endpoint: T; score: number }> = [];
 
-  for (const endpoint of endpoints) {
+  for (const endpoint of list) {
     if (options.version && endpoint.version !== options.version) continue;
     if (options.tag && endpoint.tag.toLowerCase() !== options.tag.toLowerCase()) continue;
-    if (options.listsOnly && !endpoint.collectionKey) continue;
+    if (!include(endpoint)) continue;
 
     if (terms.length === 0) {
       scored.push({ endpoint, score: 0 });

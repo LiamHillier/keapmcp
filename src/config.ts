@@ -58,6 +58,13 @@ export interface Config {
   pageSize: number;
   /** Hard ceiling on records auto-pagination will pull in a single tool call. */
   maxPageFetch: number;
+  /**
+   * Password that unlocks the write tools. Empty means write tools are not
+   * registered at all and the server stays strictly read-only.
+   */
+  writePassword: string;
+  /** Whether the generic write tool may call DELETE endpoints. Off by default. */
+  allowDelete: boolean;
 }
 
 export function loadConfig(): Config {
@@ -81,6 +88,8 @@ export function loadConfig(): Config {
     maxConcurrency: num("KEAP_MAX_CONCURRENCY", 6),
     pageSize: Math.min(1000, num("KEAP_PAGE_SIZE", 500)),
     maxPageFetch: num("KEAP_MAX_PAGE_FETCH", 20_000),
+    writePassword: process.env.KEAP_WRITE_PASSWORD ?? "",
+    allowDelete: /^(1|true|yes)$/i.test(process.env.KEAP_WRITE_ALLOW_DELETE ?? ""),
   };
 }
 
